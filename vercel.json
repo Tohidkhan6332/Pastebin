@@ -4,7 +4,8 @@
     {
       "src": "index.js",
       "use": "@vercel/node",
-      "config": { 
+      "config": {
+        "maxLambdaSize": "15mb",
         "includeFiles": [
           "*.js",
           "*.html",
@@ -16,8 +17,22 @@
   ],
   "routes": [
     {
+      "src": "/health",
+      "dest": "/index.js"
+    },
+    {
+      "src": "/code",
+      "dest": "/index.js",
+      "methods": ["GET"]
+    },
+    {
+      "src": "/qr",
+      "dest": "/index.js",
+      "methods": ["GET"]
+    },
+    {
       "src": "/(.*)",
-      "dest": "index.js"
+      "dest": "/index.js"
     }
   ]
 }

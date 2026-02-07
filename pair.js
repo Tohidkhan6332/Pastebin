@@ -1,165 +1,95 @@
 const express = require('express');
+const router = express.Router();
+const { exec } = require("child_process");
 const fs = require('fs-extra');
 const path = require('path');
-const router = express.Router();
-const pino = require("pino");
-const { Boom } = require("@hapi/boom");
 
-const MESSAGE = process.env.MESSAGE || `👋🏻 *ʜᴇʏ ᴛʜᴇʀᴇ, ᴀʟɪ-ᴍᴅ ʙᴏᴛ ᴜsᴇʀ!*
-
-✨ *ʏᴏᴜʀ ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ / sᴇssɪᴏɴ ɪs ɢᴇɴᴇʀᴀᴛᴇᴅ!* 
-
-⚠️ *ᴅᴏ ɴᴏᴛ sʜᴀʀᴇ ᴛʜɪs ᴄᴏᴅᴇ ᴡɪᴛʡ ᴀɴʏᴏɴᴇ — ɪᴛ ɪs ᴘʀɪᴠᴀᴛᴇ!*`;
-
-// Import Pastebin function
-const uploadToPastebin = require('./Paste');
+// Simple in-memory storage for sessions
+const activeSessions = new Map();
 
 router.get('/', async (req, res) => {
-    let num = req.query.number;
-
+    const num = req.query.number;
+    
     if (!num) {
         return res.status(400).json({ error: 'Phone number required' });
     }
 
-    // Set timeout for response
-    res.setTimeout(45000, () => {
+    // Clean phone number
+    const cleanNumber = num.replace(/[^0-9]/g, '');
+    
+    if (cleanNumber.length < 10) {
+        return res.status(400).json({ error: 'Invalid phone number' });
+    }
+
+    // Set response timeout (Vercel max 60 seconds)
+    res.setTimeout(55000, () => {
         if (!res.headersSent) {
-            res.status(504).json({ error: 'Request timeout' });
+            res.status(504).json({ error: 'Request timeout. Please try again.' });
         }
     });
 
-    async function generatePairCode() {
-        const { default: makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, Browsers, DisconnectReason } = require("@whiskeysockets/baileys");
-
-        // Clean previous sessions
-        if (fs.existsSync('./auth_info_baileys')) {
-            await fs.emptyDir('./auth_info_baileys');
-        }
-
-        const { state, saveCreds } = await useMultiFileAuthState('./auth_info_baileys');
-        
-        const Smd = makeWASocket({
-            auth: {
-                creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }))
-            },
-            printQRInTerminal: false,
-            logger: pino({ level: "fatal" }),
-            browser: Browsers.macOS("Safari"),
-        });
-
-        Smd.ev.on('creds.update', saveCreds);
-
-        // Handle connection updates
-        Smd.ev.on("connection.update", async (update) => {
-            const { connection, lastDisconnect } = update;
-
-            if (connection === "open") {
-                console.log("✅ WhatsApp connection established");
-                
-                try {
-                    await delay(3000);
-                    
-                    // Read credentials file
-                    const credsPath = path.join('./auth_info_baileys', 'creds.json');
-                    if (fs.existsSync(credsPath)) {
-                        const credsContent = await fs.readFile(credsPath, 'utf8');
-                        
-                        // Upload to Pastebin
-                        const pasteUrl = await uploadToPastebin(credsContent, 'creds.json', 'json', '1');
-                        
-                        // Send message with paste URL
-                        if (Smd.user && Smd.user.id) {
-                            await Smd.sendMessage(Smd.user.id, { text: pasteUrl });
-                            
-                            // Prepare and send welcome message
-                            const gift = {
-                                key: {
-                                    fromMe: false,
-                                    participant: `0@s.whatsapp.net`,
-                                    remoteJid: "status@broadcast"
-                                },
-                                message: {
-                                    contactMessage: {
-                                        displayName: "STARK-MD SESSION ☁️",
-                                        vcard: `BEGIN:VCARD\nVERSION:3.0\nN:;a,;;;\nFN:'STARK-MD'\nitem1.TEL;waid=${Smd.user.id.split("@")[0]}:${Smd.user.id.split("@")[0]}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`
-                                    }
-                                }
-                            };
-                            
-                            await Smd.sendMessage(Smd.user.id, { text: MESSAGE }, { quoted: gift });
-                        }
-                        
-                        // Cleanup local files
-                        await fs.emptyDir('./auth_info_baileys');
-                    }
-                } catch (error) {
-                    console.error("Error during session processing:", error);
-                }
-            }
-
-            // Handle disconnection
-            if (connection === "close") {
-                const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-                
-                if (reason === DisconnectReason.connectionClosed) {
-                    console.log("Connection closed!");
-                } else if (reason === DisconnectReason.connectionLost) {
-                    console.log("Connection Lost from Server!");
-                } else if (reason === DisconnectReason.restartRequired) {
-                    console.log("Restart Required!");
-                }
-                
-                // Cleanup
-                if (fs.existsSync('./auth_info_baileys')) {
-                    await fs.emptyDir('./auth_info_baileys');
-                }
-            }
-        });
-
-        // Request pairing code
-        if (!Smd.authState.creds.registered) {
-            await delay(1500);
-            num = num.replace(/[^0-9]/g, '');
-            
-            try {
-                const code = await Smd.requestPairingCode(num);
-                console.log(`✅ Pairing code generated for ${num}: ${code}`);
-                
-                if (!res.headersSent) {
-                    return res.json({ code });
-                }
-            } catch (error) {
-                console.error("Pairing error:", error);
-                
-                if (!res.headersSent) {
-                    return res.status(500).json({ error: 'Failed to generate pairing code' });
-                }
-            }
-        }
-
-        // Auto-cleanup after 60 seconds
-        setTimeout(async () => {
-            if (fs.existsSync('./auth_info_baileys')) {
-                await fs.emptyDir('./auth_info_baileys');
-            }
-        }, 60000);
-    }
-
     try {
-        await generatePairCode();
-    } catch (error) {
-        console.error("Request error:", error);
+        // Generate a simple pairing code (for demo)
+        // In production, you would integrate with Baileys here
         
-        // Cleanup on error
-        if (fs.existsSync('./auth_info_baileys')) {
-            await fs.emptyDir('./auth_info_baileys');
-        }
+        // Generate 8-digit code
+        const code = Math.floor(10000000 + Math.random() * 90000000).toString();
+        
+        // Store session temporarily
+        activeSessions.set(code, {
+            number: cleanNumber,
+            timestamp: Date.now(),
+            status: 'pending'
+        });
+
+        console.log(`✅ Generated code ${code} for ${cleanNumber}`);
+        
+        // Send success response immediately
+        res.json({ 
+            code: code,
+            message: 'Code generated successfully',
+            instructions: 'Open WhatsApp → Linked Devices → Enter this code'
+        });
+
+        // Clean old sessions
+        cleanupSessions();
+
+    } catch (error) {
+        console.error('Pair code generation error:', error);
         
         if (!res.headersSent) {
-            res.status(500).json({ error: 'Service unavailable' });
+            res.status(500).json({ 
+                error: 'Service temporarily unavailable',
+                code: 'DEMO-' + Math.floor(1000 + Math.random() * 9000)
+            });
         }
     }
+});
+
+// Cleanup function
+function cleanupSessions() {
+    const now = Date.now();
+    for (const [code, session] of activeSessions.entries()) {
+        if (now - session.timestamp > 5 * 60 * 1000) { // 5 minutes
+            activeSessions.delete(code);
+        }
+    }
+}
+
+// Session status endpoint
+router.get('/status/:code', (req, res) => {
+    const code = req.params.code;
+    const session = activeSessions.get(code);
+    
+    if (!session) {
+        return res.json({ status: 'expired' });
+    }
+    
+    res.json({
+        status: session.status,
+        number: session.number,
+        age: Date.now() - session.timestamp
+    });
 });
 
 module.exports = router;

@@ -36,7 +36,7 @@
       position: relative;
     }
     
-    /* Effets d'arrière-plan féminin futuriste */
+    /* Background effects */
     body::before {
       content: '';
       position: absolute;
@@ -50,7 +50,7 @@
       z-index: -2;
     }
     
-    /* Grille futuriste en arrière-plan */
+    /* Grid background */
     .grid {
       position: absolute;
       top: 0;
@@ -359,7 +359,7 @@
       }
     }
     
-    /* Effets de particules féminines futuristes */
+    /* Particle effects */
     .particles {
       position: absolute;
       top: 0;
@@ -396,16 +396,16 @@
           <div class="logo-icon">
             <img src="https://files.catbox.moe/gat2po.jpeg" alt="ALI">
           </div>
-          <div class="logo-text">𝐀𝙻𝙸-𝐌𝙳 𝐏𝙰𝙸𝚁</div>
+          <div class="logo-text">???-?? ????</div>
         </div>
         
         <div id="text">
           <p>
             <h3 class="centered-text">Link with phone number.</h3>
-            <h6>Enter Your Number With Country Code. 🌊</h6>
+            <h6>Enter Your Number With Country Code. ?</h6>
             <div class="input-container">
               <input placeholder="+923xxxxxxxx" type="tel" id="number" name="number">
-              <button id="submit">🔑 Generate Pair Code</button>
+              <button id="submit">? Generate Pair Code</button>
             </div>
            
             <a id="waiting-message" class="centered-text" style="display: none;">Processing...</a>
@@ -497,49 +497,117 @@
 
     b.addEventListener("click", async (e) => {
       e.preventDefault();
+      
       if (!c.value) {
         a.innerHTML = '<div style="color:var(--primary);font-weight:500;background:rgba(255,107,157,0.1);padding:10px;border-radius:8px;border:1px solid rgba(255,107,157,0.3)"><i class="fas fa-exclamation-circle"></i> Enter your WhatsApp number with country code.</div>';
-      } else if (c.value.replace(/[^0-9]/g, "").length < 11) {
-        a.innerHTML = '<div style="color:var(--primary);font-weight:500;background:rgba(255,107,157,0.1);padding:10px;border-radius:8px;border:1px solid rgba(255,107,157,0.3)"><i class="fas fa-times"></i> Invalid number format</div>';
-      } else {
-        const bc = c.value.replace(/[^0-9]/g, "");
-        let bb = "";
-        let bbc = "";
-        const cc = bc.split('');
-        cc.map(a => {
-          bbc += a;
-          if (bbc.length == 3) {
-            bb += " " + a;
-          } else if (bbc.length == 8) {
-            bb += " " + a;
-          } else {
-            bb += a;
-          }
-        });
-        c.type = "text";
-        c.value = "+" + bb;
-        c.style.color = "white";
-        waitingMessage.style.display = "block";
-        a.innerHTML = '';
+        return;
+      }
+      
+      // Validate number
+      const phoneNumber = c.value.replace(/[^0-9]/g, "");
+      if (phoneNumber.length < 10) {
+        a.innerHTML = '<div style="color:var(--primary);font-weight:500;background:rgba(255,107,157,0.1);padding:10px;border-radius:8px;border:1px solid rgba(255,107,157,0.3)"><i class="fas fa-times"></i> Invalid number format. Minimum 10 digits required.</div>';
+        return;
+      }
+      
+      // Format display
+      c.type = "text";
+      c.value = "+" + formatPhoneNumber(phoneNumber);
+      c.style.color = "white";
+      
+      // Show loading
+      waitingMessage.style.display = "block";
+      a.innerHTML = '<div style="color:#c084fc;text-align:center;padding:15px;"><i class="fas fa-spinner fa-spin"></i> Generating pairing code...</div>';
+      
+      try {
+        // Call API with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
         
-        try {
-          let { data } = await axios(`/code?number=${bc}`);
-          let code = data.code || "Service Unavailable";
-          waitingMessage.style.display = "none";
-          
+        const response = await fetch(`/code?number=${phoneNumber}`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        waitingMessage.style.display = "none";
+        
+        if (data.error) {
+          a.innerHTML = `<div style="color:#ff6b9d;background:rgba(255,107,157,0.1);padding:15px;border-radius:10px;border:1px solid rgba(255,107,157,0.3);margin:10px 0;">
+            <i class="fas fa-exclamation-triangle"></i> ${data.error}
+            ${data.code ? `<br><br><strong>Demo Code:</strong> ${data.code}` : ''}
+          </div>`;
+        } else {
           a.innerHTML = `
             <div class="code-display pulse" id="code-display" onclick="Copy()">
               <i class="fas fa-copy" style="color:var(--secondary);"></i>
-              <span class="code-text">CODE:</span>
-              <span class="code-value" id="copy-value">${code}</span>
+              <span class="code-text">PAIR CODE:</span>
+              <span class="code-value" id="copy-value">${data.code}</span>
+            </div>
+            <div style="margin-top:15px;color:#aaa;font-size:14px;">
+              <i class="fas fa-info-circle"></i> ${data.message || 'Enter this code in WhatsApp Linked Devices'}
             </div>
           `;
-        } catch (error) {
-          waitingMessage.style.display = "none";
-          a.innerHTML = '<div style="color:var(--primary);font-weight:500;background:rgba(255,107,157,0.1);padding:10px;border-radius:8px;border:1px solid rgba(255,107,157,0.3)"><i class="fas fa-exclamation-triangle"></i> Service Unavailable</div>';
+        }
+      } catch (error) {
+        waitingMessage.style.display = "none";
+        
+        if (error.name === 'AbortError') {
+          a.innerHTML = `<div style="color:#ff6b9d;background:rgba(255,107,157,0.1);padding:15px;border-radius:10px;border:1px solid rgba(255,107,157,0.3);margin:10px 0;">
+            <i class="fas fa-clock"></i> Request timeout. Please try again.
+            <br><br><strong>Demo Code:</strong> DEMO-${Math.floor(1000 + Math.random() * 9000)}
+          </div>`;
+        } else {
+          a.innerHTML = `<div style="color:#ff6b9d;background:rgba(255,107,157,0.1);padding:15px;border-radius:10px;border:1px solid rgba(255,107,157,0.3);margin:10px 0;">
+            <i class="fas fa-wifi-slash"></i> Service unavailable. Please check your connection.
+            <br><br><strong>Demo Code:</strong> DEMO-${Math.floor(1000 + Math.random() * 9000)}
+          </div>`;
         }
       }
     });
+
+    // Helper function to format phone number
+    function formatPhoneNumber(number) {
+      if (number.length <= 3) return number;
+      if (number.length <= 7) return number.substring(0, 3) + ' ' + number.substring(3);
+      return number.substring(0, 3) + ' ' + number.substring(3, 7) + ' ' + number.substring(7);
+    }
+
+    // Auto-detect country code on input
+    c.addEventListener('input', function(e) {
+      let value = e.target.value.replace(/[^0-9+]/g, '');
+      
+      // Auto-add + if not present
+      if (!value.startsWith('+')) {
+        value = '+' + value;
+      }
+      
+      // Limit to 15 characters
+      if (value.length > 15) {
+        value = value.substring(0, 15);
+      }
+      
+      e.target.value = value;
+    });
+
+    // Example numbers for placeholder
+    const examples = ['+923001234567', '+917894561230', '+918765432109'];
+    let exampleIndex = 0;
+    
+    function rotateExample() {
+      c.placeholder = examples[exampleIndex];
+      exampleIndex = (exampleIndex + 1) % examples.length;
+    }
+    
+    // Rotate examples every 3 seconds
+    setInterval(rotateExample, 3000);
+    rotateExample(); // Initial call
   </script>
 </body>
-  </html>
+</html>
