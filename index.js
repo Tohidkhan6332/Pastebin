@@ -1,129 +1,60 @@
-import express from "express";
-import fs from "fs-extra";
-import pino from "pino";
-import { Boom } from "@hapi/boom";
-
-import makeWASocket, {
-  useMultiFileAuthState,
-  delay,
-  makeCacheableSignalKeyStore,
-  Browsers,
-  DisconnectReason
-} from "@whiskeysockets/baileys";
-
-import uploadToPastebin from "./Paste.js";
-
+const express = require('express');
+const bodyParser = require("body-parser");
+const path = require('path');
 const app = express();
 
-const MESSAGE =
-  process.env.MESSAGE ||
-  `👋🏻 Hey there!
+const PORT = process.env.PORT || 3000;
 
-Your pairing session is generated.
+// Routers
+const qrRouter = require('./qr');
+const codeRouter = require('./pair');
 
-⚠️ Do not share this code.
+// Middleware
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-GitHub Repo:
-https://github.com/ALI-INXIDE/ALI-MD`;
+// Use routers
+app.use('/qr', qrRouter);
+app.use('/code', codeRouter);
 
-if (fs.existsSync("./auth_info_baileys")) {
-  fs.emptyDirSync("./auth_info_baileys");
+// Static HTML routes
+app.get('/pair', (req, res) => {
+  res.sendFile(path.join(__dirname, 'pair.html'));
+});
+
+app.get('/qr', (req, res) => {
+  res.sendFile(path.join(__dirname, 'qr.html'));
+});
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'main.html'));
+});
+
+// Serve static files
+app.use('/css', express.static(path.join(__dirname, 'css')));
+app.use('/js', express.static(path.join(__dirname, 'js')));
+
+// API health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    service: 'STARK-MD Pairing Platform'
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Vercel-compatible export
+module.exports = app;
+
+// Local development server
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`✅ STARK-MD Server running on http://localhost:${PORT}`);
+  });
 }
-
-app.get("/", async (req, res) => {
-  let num = req.query.number;
-
-  async function startPairing() {
-    const { state, saveCreds } = await useMultiFileAuthState("./auth_info_baileys");
-
-    try {
-      const sock = makeWASocket({
-        auth: {
-          creds: state.creds,
-          keys: makeCacheableSignalKeyStore(
-            state.keys,
-            pino({ level: "fatal" })
-          )
-        },
-        printQRInTerminal: false,
-        logger: pino({ level: "fatal" }),
-        browser: Browsers.macOS("Safari")
-      });
-
-      if (!sock.authState.creds.registered) {
-        await delay(1500);
-        num = num.replace(/[^0-9]/g, "");
-
-        const code = await sock.requestPairingCode(num);
-
-        if (!res.headersSent) {
-          res.send({ code });
-        }
-      }
-
-      sock.ev.on("creds.update", saveCreds);
-
-      sock.ev.on("connection.update", async (update) => {
-        const { connection, lastDisconnect } = update;
-
-        if (connection === "open") {
-          try {
-            await delay(8000);
-
-            const credsPath = "./auth_info_baileys/creds.json";
-            const pasteUrl = await uploadToPastebin(
-              credsPath,
-              "creds.json",
-              "json",
-              "1"
-            );
-
-            const user = sock.user.id;
-
-            await sock.sendMessage(user, {
-              text: pasteUrl
-            });
-
-            await sock.sendMessage(user, {
-              text: MESSAGE
-            });
-
-            await delay(1000);
-            fs.emptyDirSync("./auth_info_baileys");
-
-          } catch (e) {
-            console.log("Upload/send error:", e);
-          }
-        }
-
-        if (connection === "close") {
-          const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-
-          if (reason === DisconnectReason.connectionClosed) {
-            console.log("Connection closed");
-          } else if (reason === DisconnectReason.connectionLost) {
-            console.log("Connection lost");
-          } else if (reason === DisconnectReason.timedOut) {
-            console.log("Timed out");
-          } else {
-            console.log("Disconnected:", reason);
-          }
-        }
-      });
-
-    } catch (err) {
-      console.log("Pairing error:", err);
-      fs.emptyDirSync("./auth_info_baileys");
-
-      if (!res.headersSent) {
-        res.send({ code: "Try again later" });
-      }
-    }
-  }
-
-  await startPairing();
-});
-
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
-});
